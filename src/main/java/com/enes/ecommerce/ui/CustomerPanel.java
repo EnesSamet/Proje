@@ -11,6 +11,8 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 
 public class CustomerPanel extends JPanel {
     private InventoryService inventoryService;
@@ -21,9 +23,19 @@ public class CustomerPanel extends JPanel {
     private JTable productTable;
     private DefaultTableModel orderTableModel;
     private JTable orderTable;
+    
+    private DefaultTableModel cartTableModel;
+    private JTable cartTable;
 
     private JTextField txtSearch, txtQuantity;
-    private JButton btnBuy, btnLogout;
+    private JLabel lblCartTotal;
+    
+    private class CartItem {
+        Product product;
+        int quantity;
+        public CartItem(Product p, int q) { this.product = p; this.quantity = q; }
+    }
+    private Map<Integer, CartItem> cart = new LinkedHashMap<>();
 
     public CustomerPanel(MainFrame parent, AuthService authService) {
         this.authService = authService;
@@ -49,7 +61,7 @@ public class CustomerPanel extends JPanel {
         titlePanel.add(lblSub);
         headerPanel.add(titlePanel, BorderLayout.WEST);
 
-        btnLogout = new JButton("Logout");
+        JButton btnLogout = new JButton("Logout");
         btnLogout.putClientProperty(FlatClientProperties.STYLE, "background: #ef4444; foreground: #ffffff; font: bold; borderWidth: 0; padding: 5,15,5,15;");
         btnLogout.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnLogout.addActionListener(e -> parent.logout());
@@ -57,22 +69,30 @@ public class CustomerPanel extends JPanel {
 
         add(headerPanel, BorderLayout.NORTH);
 
-        // Center Split Pane (Products Top, Orders Bottom)
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        splitPane.setResizeWeight(0.6);
-        splitPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        splitPane.putClientProperty(FlatClientProperties.STYLE, "dividerSize: 10; dividerFocusColor: #e5e7eb;");
-
-        // Top: Products
-        JPanel topPanel = new JPanel(new BorderLayout(0, 10));
-        topPanel.setBackground(Color.WHITE);
-        topPanel.putClientProperty(FlatClientProperties.STYLE, "arc: 16; border: 1,1,1,1,#e5e7eb;");
-        topPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createTitledBorder(BorderFactory.createEmptyBorder(), "Product Catalog", 0, 0, new Font("Segoe UI", Font.BOLD, 16), new Color(17, 24, 39)),
-            BorderFactory.createEmptyBorder(5, 10, 10, 10)
-        ));
+        // JTabbedPane
+        JTabbedPane tabbedPane = new JTabbedPane();
+        tabbedPane.putClientProperty(FlatClientProperties.STYLE, "showTabSeparators: true; tabHeight: 40; font: bold;");
         
-        JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        tabbedPane.addTab("Product Catalog", createCatalogTab());
+        tabbedPane.addTab("My Cart", createCartTab());
+        tabbedPane.addTab("Order History", createOrderTab());
+        
+        tabbedPane.addChangeListener(e -> {
+            if (tabbedPane.getSelectedIndex() == 1) refreshCartView();
+            else if (tabbedPane.getSelectedIndex() == 2) loadOrderTable();
+        });
+
+        add(tabbedPane, BorderLayout.CENTER);
+
+        refreshData();
+    }
+    
+    private JPanel createCatalogTab() {
+        JPanel panel = new JPanel(new BorderLayout(0, 10));
+        panel.setBackground(Color.WHITE);
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        
+        JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 10));
         searchPanel.setBackground(Color.WHITE);
         txtSearch = new JTextField(25);
         txtSearch.putClientProperty(FlatClientProperties.PLACEHOLDER_TEXT, "Search products...");
@@ -83,7 +103,7 @@ public class CustomerPanel extends JPanel {
             public void insertUpdate(javax.swing.event.DocumentEvent e) { search(); }
         });
         searchPanel.add(txtSearch);
-        topPanel.add(searchPanel, BorderLayout.NORTH);
+        panel.add(searchPanel, BorderLayout.NORTH);
 
         productTableModel = new DefaultTableModel(new String[]{"ID", "Name", "Category", "Price", "Available Stock"}, 0) {
             @Override
@@ -94,37 +114,76 @@ public class CustomerPanel extends JPanel {
         productTable.putClientProperty(FlatClientProperties.STYLE, "showHorizontalLines: true; showVerticalLines: false; selectionBackground: #e0e7ff; selectionForeground: #3730a3;");
         productTable.getTableHeader().putClientProperty(FlatClientProperties.STYLE, "font: bold; background: #f9fafb;");
         
-        JScrollPane productScroll = new JScrollPane(productTable);
-        productScroll.setBorder(BorderFactory.createEmptyBorder());
-        topPanel.add(productScroll, BorderLayout.CENTER);
+        JScrollPane scroll = new JScrollPane(productTable);
+        panel.add(scroll, BorderLayout.CENTER);
 
-        JPanel buyPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        buyPanel.setBackground(Color.WHITE);
-        buyPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+        JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
+        actionPanel.setBackground(Color.WHITE);
         
-        buyPanel.add(new JLabel("Qty:"));
+        actionPanel.add(new JLabel("Qty:"));
         txtQuantity = new JTextField("1", 5);
         txtQuantity.putClientProperty(FlatClientProperties.STYLE, "margin: 5,10,5,10; textAlignment: center; font: bold;");
-        buyPanel.add(txtQuantity);
+        actionPanel.add(txtQuantity);
         
-        btnBuy = new JButton("Buy Selected Product");
-        btnBuy.putClientProperty(FlatClientProperties.STYLE, "background: #4f46e5; foreground: #ffffff; font: bold; borderWidth: 0; padding: 5,20,5,20;");
-        btnBuy.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btnBuy.addActionListener(e -> purchase());
-        buyPanel.add(btnBuy);
+        JButton btnAddCart = new JButton("Add to Cart");
+        btnAddCart.putClientProperty(FlatClientProperties.STYLE, "background: #4f46e5; foreground: #ffffff; font: bold; borderWidth: 0; padding: 5,20,5,20;");
+        btnAddCart.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btnAddCart.addActionListener(e -> addToCart());
+        actionPanel.add(btnAddCart);
         
-        topPanel.add(buyPanel, BorderLayout.SOUTH);
+        panel.add(actionPanel, BorderLayout.SOUTH);
+        return panel;
+    }
+    
+    private JPanel createCartTab() {
+        JPanel panel = new JPanel(new BorderLayout(0, 10));
+        panel.setBackground(Color.WHITE);
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        
+        cartTableModel = new DefaultTableModel(new String[]{"ID", "Product", "Unit Price", "Quantity", "Subtotal"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) { return false; }
+        };
+        cartTable = new JTable(cartTableModel);
+        cartTable.setRowHeight(35);
+        cartTable.putClientProperty(FlatClientProperties.STYLE, "showHorizontalLines: true; showVerticalLines: false; selectionBackground: #ffe4e6; selectionForeground: #9f1239;");
+        cartTable.getTableHeader().putClientProperty(FlatClientProperties.STYLE, "font: bold; background: #f9fafb;");
+        
+        JScrollPane scroll = new JScrollPane(cartTable);
+        panel.add(scroll, BorderLayout.CENTER);
 
-        splitPane.setTopComponent(topPanel);
-
-        // Bottom: Orders
-        JPanel bottomPanel = new JPanel(new BorderLayout(0, 10));
+        JPanel bottomPanel = new JPanel(new BorderLayout());
         bottomPanel.setBackground(Color.WHITE);
-        bottomPanel.putClientProperty(FlatClientProperties.STYLE, "arc: 16; border: 1,1,1,1,#e5e7eb;");
-        bottomPanel.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createTitledBorder(BorderFactory.createEmptyBorder(), "My Order History", 0, 0, new Font("Segoe UI", Font.BOLD, 16), new Color(17, 24, 39)),
-            BorderFactory.createEmptyBorder(5, 10, 10, 10)
-        ));
+        bottomPanel.setBorder(BorderFactory.createEmptyBorder(15, 0, 0, 0));
+        
+        JButton btnRemove = new JButton("Remove Selected");
+        btnRemove.putClientProperty(FlatClientProperties.STYLE, "background: #ef4444; foreground: #ffffff; font: bold; borderWidth: 0; padding: 5,15,5,15;");
+        btnRemove.addActionListener(e -> removeSelectedCartItem());
+        bottomPanel.add(btnRemove, BorderLayout.WEST);
+        
+        JPanel checkoutPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 20, 0));
+        checkoutPanel.setBackground(Color.WHITE);
+        
+        lblCartTotal = new JLabel("Total: $0.00");
+        lblCartTotal.putClientProperty(FlatClientProperties.STYLE, "font: bold +4; foreground: #111827;");
+        checkoutPanel.add(lblCartTotal);
+        
+        JButton btnCheckout = new JButton("Checkout");
+        btnCheckout.putClientProperty(FlatClientProperties.STYLE, "background: #10b981; foreground: #ffffff; font: bold +2; borderWidth: 0; padding: 10,25,10,25;");
+        btnCheckout.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btnCheckout.addActionListener(e -> checkout());
+        checkoutPanel.add(btnCheckout);
+        
+        bottomPanel.add(checkoutPanel, BorderLayout.EAST);
+        panel.add(bottomPanel, BorderLayout.SOUTH);
+        
+        return panel;
+    }
+    
+    private JPanel createOrderTab() {
+        JPanel panel = new JPanel(new BorderLayout(0, 10));
+        panel.setBackground(Color.WHITE);
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
         
         orderTableModel = new DefaultTableModel(new String[]{"Order ID", "Date", "Total Amount"}, 0) {
             @Override
@@ -132,18 +191,12 @@ public class CustomerPanel extends JPanel {
         };
         orderTable = new JTable(orderTableModel);
         orderTable.setRowHeight(35);
-        orderTable.putClientProperty(FlatClientProperties.STYLE, "showHorizontalLines: true; showVerticalLines: false; selectionBackground: #e0e7ff; selectionForeground: #3730a3;");
+        orderTable.putClientProperty(FlatClientProperties.STYLE, "showHorizontalLines: true; showVerticalLines: false; selectionBackground: #e0e7ff;");
         orderTable.getTableHeader().putClientProperty(FlatClientProperties.STYLE, "font: bold; background: #f9fafb;");
         
-        JScrollPane orderScroll = new JScrollPane(orderTable);
-        orderScroll.setBorder(BorderFactory.createEmptyBorder());
-        bottomPanel.add(orderScroll, BorderLayout.CENTER);
-
-        splitPane.setBottomComponent(bottomPanel);
-
-        add(splitPane, BorderLayout.CENTER);
-
-        refreshData();
+        JScrollPane scroll = new JScrollPane(orderTable);
+        panel.add(scroll, BorderLayout.CENTER);
+        return panel;
     }
 
     private void search() {
@@ -154,7 +207,6 @@ public class CustomerPanel extends JPanel {
 
     private void refreshData() {
         loadProductTable(inventoryService.getAllProducts());
-        loadOrderTable();
     }
 
     private void loadProductTable(List<Product> list) {
@@ -171,11 +223,11 @@ public class CustomerPanel extends JPanel {
             orderTableModel.addRow(new Object[]{o.getId(), o.getOrderDate(), String.format("$%.2f", o.getTotalAmount())});
         }
     }
-
-    private void purchase() {
+    
+    private void addToCart() {
         int row = productTable.getSelectedRow();
         if (row < 0) {
-            JOptionPane.showMessageDialog(this, "Please select a product from the catalog to buy.", "Warning", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Please select a product from the catalog.", "Warning", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -188,19 +240,73 @@ public class CustomerPanel extends JPanel {
                 return;
             }
             
-            transactionService.purchaseProduct(authService.getCurrentUser().getId(), productId, quantity);
+            int availableStock = Integer.parseInt(productTableModel.getValueAt(row, 4).toString());
+            String name = productTableModel.getValueAt(row, 1).toString();
+            String cat = productTableModel.getValueAt(row, 2).toString();
+            double price = Double.parseDouble(productTableModel.getValueAt(row, 3).toString());
             
-            JOptionPane.showMessageDialog(this, "Purchase successful! Thank you.", "Success", JOptionPane.INFORMATION_MESSAGE);
+            int currentCartQty = cart.containsKey(productId) ? cart.get(productId).quantity : 0;
+            if (currentCartQty + quantity > availableStock) {
+                showErrorValidation("Insufficient stock! You can only add up to " + (availableStock - currentCartQty) + " more of this item.");
+                return;
+            }
+            
+            cart.put(productId, new CartItem(new Product(productId, name, cat, price, availableStock), currentCartQty + quantity));
+            
+            JOptionPane.showMessageDialog(this, "Added to cart successfully!", "Cart updated", JOptionPane.INFORMATION_MESSAGE);
             txtQuantity.putClientProperty("JComponent.outline", null);
-            refreshData(); 
             txtQuantity.setText("1");
         } catch (NumberFormatException e) {
             showErrorValidation("Quantity must be a valid number.");
-        } catch (Exception e) {
-            showErrorValidation(e.getMessage());
         }
     }
     
+    private void refreshCartView() {
+        cartTableModel.setRowCount(0);
+        double total = 0;
+        for (Map.Entry<Integer, CartItem> entry : cart.entrySet()) {
+            CartItem ci = entry.getValue();
+            double subtotal = ci.product.getPrice() * ci.quantity;
+            total += subtotal;
+            cartTableModel.addRow(new Object[]{ci.product.getId(), ci.product.getName(), String.format("$%.2f", ci.product.getPrice()), ci.quantity, String.format("$%.2f", subtotal)});
+        }
+        lblCartTotal.setText(String.format("Total: $%.2f", total));
+    }
+    
+    private void removeSelectedCartItem() {
+        int row = cartTable.getSelectedRow();
+        if (row < 0) {
+            JOptionPane.showMessageDialog(this, "Select an item to remove.", "Warning", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        int id = Integer.parseInt(cartTableModel.getValueAt(row, 0).toString());
+        cart.remove(id);
+        refreshCartView();
+    }
+    
+    private void checkout() {
+        if (cart.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Your cart is empty.", "Warning", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        
+        try {
+            Map<Integer, Integer> tempCart = new LinkedHashMap<>();
+            cart.forEach((id, item) -> tempCart.put(id, item.quantity));
+            
+            transactionService.checkoutCart(authService.getCurrentUser().getId(), tempCart);
+            JOptionPane.showMessageDialog(this, "Checkout successful! Thank you for your purchase.", "Order Placed", JOptionPane.INFORMATION_MESSAGE);
+            
+            cart.clear();
+            refreshCartView();
+            refreshData(); // updates catalog stock
+            
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Checkout Failed: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            refreshData(); // resync catalog in case of stock errors
+        }
+    }
+
     private void showErrorValidation(String msg) {
         JOptionPane.showMessageDialog(this, msg, "Validation Error", JOptionPane.ERROR_MESSAGE);
         txtQuantity.putClientProperty("JComponent.outline", "error");
