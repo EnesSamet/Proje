@@ -89,4 +89,8 @@ public class TransactionService {
     public List<OrderItem> getOrderItemsByOrderId(int orderId) {
         return orderItemDao.getByOrderId(orderId);
     }
+    
+    public List<Order> getAllOrders() {
+        return orderDao.getAll();
+    }
 }
