@@ -61,6 +61,15 @@ public class MainFrame extends JFrame {
 
     public static void main(String[] args) {
         try {
+            // Global FlatLaf UI settings
+            UIManager.put("defaultFont", new Font("Segoe UI", Font.PLAIN, 14));
+            UIManager.put("Button.arc", 12);
+            UIManager.put("Component.arc", 12);
+            UIManager.put("TextComponent.arc", 12);
+            UIManager.put("ScrollBar.showButtons", true);
+            UIManager.put("ScrollBar.width", 12);
+            UIManager.put("Table.alternateRowColor", new Color(245, 245, 250));
+            // Set modern light look and feel
             UIManager.setLookAndFeel(new FlatLightLaf());
         } catch (Exception ex) {
             System.err.println("Failed to initialize LaF");
